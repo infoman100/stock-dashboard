@@ -9,83 +9,81 @@ const mockRadarData = [
   { subject: '배당/안정', score: 60, fullMark: 100 },
 ];
 
+// 🚀 [핵심 수정] 환경 변수에서 백엔드 주소 가져오기 (없으면 로컬 주소 사용)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 export default function App() {
   const [activeMenu, setActiveMenu] = useState('국내증시');
   const [viewMode, setViewMode] = useState('dashboard');
-  const [selectedStock, setSelectedStock] = useState({ name: '', ticker: '' }); // 선택된 종목 객체
+  const [selectedStock, setSelectedStock] = useState({ name: '', ticker: '' }); 
   
   // 상태 관리
   const [fullChartData, setFullChartData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('1Y'); 
   
-  
-  // 🚀 검색창 관련 상태 추가
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
 
-  // 🚀 [추가] AI 리포트 데이터를 담을 상태들
   const [aiReport, setAiReport] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 검색어 입력 시 백엔드 API 호출하는 함수
+  // 검색어 입력 시 백엔드 API 호출
   const handleSearchChange = async (e) => {
     const value = e.target.value;
     setSearchTerm(value);
 
-    // 두 글자 이상 입력되었을 때만 검색 실행
     if (value.trim().length >= 1) {
       try {
-        const response = await fetch(`http://localhost:8000/api/search?keyword=${value}`);
+        // 🚀 [수정] API_BASE_URL 적용
+        const response = await fetch(`${API_BASE_URL}/api/search?keyword=${value}`);
         const result = await response.json();
         setSearchResults(result.data || []);
       } catch (error) {
         console.error("검색 에러:", error);
       }
     } else {
-      setSearchResults([]); // 검색어가 짧으면 결과 초기화
+      setSearchResults([]); 
     }
   };
 
-  // 종목 선택 시 상세 리포트로 이동하는 함수
+  // 종목 선택 시 상세 데이터 호출
   const goToDetail = async (stock) => {
-  setSelectedStock({ name: stock.name, ticker: stock.ticker });
-  setViewMode('detail');
-  setIsLoading(true);
-  
-  // 🚀 [추가] AI 리포트 호출 준비
-  setIsAiLoading(true); 
-  setAiReport(''); 
-  
-  setSelectedPeriod('1Y'); 
-  setSearchTerm(''); 
-  setSearchResults([]); 
+    setSelectedStock({ name: stock.name, ticker: stock.ticker });
+    setViewMode('detail');
+    setIsLoading(true);
+    
+    setIsAiLoading(true); 
+    setAiReport(''); 
+    
+    setSelectedPeriod('1Y'); 
+    setSearchTerm(''); 
+    setSearchResults([]); 
 
-  try {
-    // 1. 기존 주가 데이터 가져오기 로직 (그대로 유지)
-    const response = await fetch(`http://localhost:8000/api/stock/${stock.ticker}`);
-    const result = await response.json();
-    if (result.data) {
-      const formattedData = result.data.map(item => ({
-        time: item.Date, 
-        [stock.name]: item.Close
-      })).sort((a, b) => new Date(a.time) - new Date(b.time)); 
-      setFullChartData(formattedData);
+    try {
+      // 🚀 [수정] API_BASE_URL 적용 (차트 데이터)
+      const response = await fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`);
+      const result = await response.json();
+      if (result.data) {
+        const formattedData = result.data.map(item => ({
+          time: item.Date, 
+          [stock.name]: item.Close
+        })).sort((a, b) => new Date(a.time) - new Date(b.time)); 
+        setFullChartData(formattedData);
+      }
+
+      // 🚀 [수정] API_BASE_URL 적용 (AI 리포트)
+      const aiRes = await fetch(`${API_BASE_URL}/api/ai-report/${stock.ticker}?stock_name=${stock.name}`);
+      const aiResult = await aiRes.json();
+      setAiReport(aiResult.report);
+
+    } catch (error) {
+      console.error("데이터 통신 에러:", error);
+    } finally {
+      setIsLoading(false);
+      setIsAiLoading(false); 
     }
-
-    // 🚀 [추가] 2. 백엔드 AI 리포트 API 호출하기
-    const aiRes = await fetch(`http://localhost:8000/api/ai-report/${stock.ticker}?stock_name=${stock.name}`);
-    const aiResult = await aiRes.json();
-    setAiReport(aiResult.report); // 받아온 분석글 저장
-
-  } catch (error) {
-    console.error("데이터 통신 에러:", error);
-  } finally {
-    setIsLoading(false);
-    // 🚀 [추가] AI 로딩 종료
-    setIsAiLoading(false); 
-  }
-};
+  };
 
   const displayChartData = useMemo(() => {
     if (fullChartData.length === 0) return [];
@@ -128,7 +126,6 @@ export default function App() {
           <div className="p-8 space-y-6 max-w-6xl mx-auto w-full relative">
             <h2 className="text-3xl font-black text-slate-900 mb-8">🔥 종목 검색</h2>
             
-            {/* 🚀 검색창 UI */}
             <div className="relative w-full max-w-2xl">
               <input 
                 type="text" 
@@ -138,7 +135,6 @@ export default function App() {
                 className="w-full px-6 py-4 text-lg border-2 border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
               />
               
-              {/* 검색 결과 드롭다운 */}
               {searchResults.length > 0 && (
                 <ul className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
                   {searchResults.map((stock) => (
@@ -159,22 +155,18 @@ export default function App() {
 
           </div>
         ) : (
-          /* 상세 리포트 뷰 (이전과 동일, selectedStock.name 사용) */
           <div className="p-8 max-w-6xl mx-auto w-full space-y-6">
-            {/* 🚀 [교체] 왼쪽: 가짜 차트 대신 진짜 🤖 AI 애널리스트 리포트 박스 */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1 h-[22rem] overflow-y-auto">
               <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
                 <span className="text-xl mr-2">🤖</span> AI 애널리스트 요약
               </h3>
               
               {isAiLoading ? (
-                // 로딩 중일 때 보여줄 화면
                 <div className="flex flex-col items-center justify-center h-48 space-y-4">
                   <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                   <p className="text-sm font-bold text-blue-600 animate-pulse">최근 30일치 데이터를 분석 중입니다...</p>
                 </div>
               ) : (
-                // 분석이 완료되었을 때 글자 보여주기
                 <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
                   {aiReport || "분석 데이터를 불러오지 못했습니다."}
                 </div>
