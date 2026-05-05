@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// 임시 테마 데이터 (향후 백엔드 DB 자동화 로직으로 대체될 예정)
+// 🗂️ 임시 테마 데이터 (향후 백엔드에서 자동화할 부분)
 const THEMES = [
   { 
     id: 'semiconductor', 
@@ -29,7 +29,7 @@ const THEMES = [
   }
 ];
 
-// 🚀 [추가] 커스텀 툴팁: 마우스 오버 시 직관적인 설명 박스 생성
+// 🚀 커스텀 툴팁: 마우스 오버 시 직관적인 설명 박스 생성
 const CustomTooltip = ({ active, payload, label, chartType }) => {
   if (active && payload && payload.length) {
     return (
@@ -59,15 +59,12 @@ export default function App() {
 
   const [rawChartData, setRawChartData] = useState([]);
   
-  // 🚀 [수정] 대안C: 최대 5년으로 제한. 라디오 버튼 구성 변경
+  // 조회 조건 및 차트 타입 (대안 C 반영: 5년 제한, 기본값 price)
   const [selectedPeriod, setSelectedPeriod] = useState('3M'); // 1M, 3M, 1Y, 3Y, 5Y
-  
-  // 🚀 [수정] Default를 '일자별 주가(원)'으로 변경
   const [chartType, setChartType] = useState('price'); 
+  const [watchList, setWatchList] = useState([]); // 관심 종목
 
-  // 🚀 [추가] 관심 종목(Watchlist) 상태 관리
-  const [watchList, setWatchList] = useState([]);
-
+  // 테마 클릭 시 데이터 패칭 및 전처리
   const handleThemeClick = async (theme) => {
     setIsLoading(true);
     setActiveTheme(theme);
@@ -80,6 +77,7 @@ export default function App() {
       );
       const results = await Promise.all(promises);
 
+      // 1. 날짜 기준으로 데이터 병합
       let mergedData = {};
       results.forEach((res, index) => {
         if (!res.data || res.data.length === 0) return;
@@ -90,8 +88,24 @@ export default function App() {
         });
       });
 
+      // 2. 날짜순 정렬
       const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
-      setRawChartData(sortedData);
+      
+      // 🚀 [핵심 수정] 결측치 해결: Forward Fill (전일 종가로 빈칸 채우기)
+      let lastKnownPrices = {}; 
+      const filledData = sortedData.map(row => {
+        const newRow = { ...row };
+        theme.stocks.forEach(stock => {
+          if (newRow[stock.name] !== undefined) {
+            lastKnownPrices[stock.name] = newRow[stock.name]; // 최근 가격 갱신
+          } else if (lastKnownPrices[stock.name] !== undefined) {
+            newRow[stock.name] = lastKnownPrices[stock.name]; // 빈칸이면 최근 가격으로 메꿈
+          }
+        });
+        return newRow;
+      });
+
+      setRawChartData(filledData);
 
     } catch (error) {
       console.error("데이터 로딩 실패:", error);
@@ -100,6 +114,7 @@ export default function App() {
     }
   };
 
+  // 조건에 맞춰 차트 데이터 가공
   const displayChartData = useMemo(() => {
     if (rawChartData.length === 0 || !activeTheme) return [];
 
@@ -107,7 +122,7 @@ export default function App() {
     const endDate = new Date(lastDataPoint.time);
     let startDate = new Date(endDate);
 
-    // 대안C: 전체(ALL)를 없애고 최대 5년까지만 제공하여 차트 잘림 현상 방지
+    // 기간 필터링 (최대 5년)
     if (selectedPeriod === '1M') startDate.setMonth(startDate.getMonth() - 1);
     else if (selectedPeriod === '3M') startDate.setMonth(startDate.getMonth() - 3);
     else if (selectedPeriod === '1Y') startDate.setFullYear(startDate.getFullYear() - 1);
@@ -120,6 +135,7 @@ export default function App() {
     if (chartType === 'price') {
       return filteredData;
     } else {
+      // 누적 수익률(%) 모드
       const basePrices = {};
       activeTheme.stocks.forEach(s => {
         const firstValidRow = filteredData.find(row => row[s.name] !== undefined);
@@ -144,7 +160,6 @@ export default function App() {
     );
   };
 
-  // 관심 종목 추가/제거 로직
   const toggleWatchList = (stock, e) => {
     e.stopPropagation();
     setWatchList(prev => 
@@ -181,7 +196,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 🚀 [수정] 내 자산 제거 -> 관심 종목 (Watchlist) 으로 변경 */}
+          {/* 마이 워치리스트 (포트폴리오 대체) */}
           <div className="pt-4 border-t border-slate-800">
             <p className="text-xs font-black text-slate-500 mb-3 px-2 tracking-wider">⭐ MY WATCHLIST</p>
             
@@ -246,7 +261,6 @@ export default function App() {
                           <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stock.color }}></div>
                           <span className="text-sm font-bold text-slate-200">{stock.name}</span>
                         </label>
-                        {/* 관심종목 별표 버튼 */}
                         <button onClick={(e) => toggleWatchList(stock, e)} className={`ml-2 text-sm ${isStarred ? 'text-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`}>
                           {isStarred ? '★' : '☆'}
                         </button>
@@ -265,7 +279,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🚀 메인 차트 (Zoom/Pan 적용) */}
+            {/* 메인 차트 */}
             <div className="flex-1 bg-[#1e293b] border border-slate-700 p-6 rounded-2xl relative min-h-[400px] shadow-lg flex flex-col">
               <div className="absolute top-6 left-6 z-10">
                 <h3 className="text-sm font-bold text-slate-200">
@@ -291,7 +305,6 @@ export default function App() {
                         tickFormatter={(val) => chartType === 'return' ? `${val}%` : `${val.toLocaleString()}`} 
                         width={65} 
                       />
-                      {/* 🚀 고도화된 커스텀 툴팁 */}
                       <Tooltip content={<CustomTooltip chartType={chartType} />} cursor={{ stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' }} />
                       
                       {activeTheme.stocks.map(stock => (
@@ -300,7 +313,7 @@ export default function App() {
                         )
                       ))}
                       
-                      {/* 🚀 줌인/줌아웃 및 패딩을 위한 브러쉬 컨트롤러 */}
+                      {/* 줌인/줌아웃 및 패딩을 위한 브러쉬 컨트롤러 */}
                       <Brush 
                         dataKey="time" 
                         height={25} 
