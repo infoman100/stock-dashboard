@@ -10,22 +10,22 @@ const THEMES = [
     id: 'semiconductor', 
     name: '🔥 AI & 반도체 대장주', 
     stocks: [
-      { ticker: '005930', name: '삼성전자', color: '#ef4444' },    // 기준 A (시총)
-      { ticker: '000660', name: 'SK하이닉스', color: '#3b82f6' },  // 기준 A (시총)
-      { ticker: '042700', name: '한미반도체', color: '#10b981' },  // 기준 B (트렌드)
-      { ticker: '028300', name: 'HLB', color: '#f59e0b' },        // 기준 B (트렌드)
-      { ticker: '041510', name: '에스엠', color: '#8b5cf6' }       // 임시 (실제 대장주로 교체 필요)
+      { ticker: '005930.KS', name: '삼성전자', color: '#ef4444' },    // 기준 A (시총)
+      { ticker: '000660.KS', name: 'SK하이닉스', color: '#3b82f6' },  // 기준 A (시총)
+      { ticker: '042700.KS', name: '한미반도체', color: '#10b981' },  // 기준 B (트렌드)
+      { ticker: '028300.KS', name: 'HLB', color: '#f59e0b' },        // 기준 B (트렌드)
+      { ticker: '041510.KS', name: '에스엠', color: '#8b5cf6' }       // 임시 (실제 대장주로 교체 필요)
     ]
   },
   { 
     id: 'nuclear', 
     name: '⚡ K-원전 르네상스', 
     stocks: [
-      { ticker: '034020', name: '두산에너빌리티', color: '#ef4444' },
-      { ticker: '015760', name: '한국전력', color: '#3b82f6' },
-      { ticker: '000720', name: '현대건설', color: '#10b981' },
-      { ticker: '051600', name: '한전KPS', color: '#f59e0b' },
-      { ticker: '053690', name: '한전기술', color: '#8b5cf6' }
+      { ticker: '034020.KS', name: '두산에너빌리티', color: '#ef4444' },
+      { ticker: '015760.KS', name: '한국전력', color: '#3b82f6' },
+      { ticker: '000720.KS', name: '현대건설', color: '#10b981' },
+      { ticker: '051600.KS', name: '한전KPS', color: '#f59e0b' },
+      { ticker: '053690.KS', name: '한전기술', color: '#8b5cf6' }
     ]
   }
 ];
