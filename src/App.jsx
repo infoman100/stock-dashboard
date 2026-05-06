@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-// 🚀 [해결책 1] Vercel이 코드를 삭제하지 못하도록 통째로 가져오는 방식
-import * as LightweightCharts from 'lightweight-charts';
+import React, { useState, useEffect } from 'react';
+import Highcharts from 'highcharts';
+import HighchartsReact from 'highcharts-react-official';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -45,123 +45,6 @@ const Typewriter = ({ text }) => {
   return <p className="text-sm text-blue-300 font-medium leading-relaxed whitespace-pre-line">{displayedText}</p>;
 };
 
-// 🚀 [해결책 2] 다른 화면과 충돌하지 않도록 완전히 격리시킨 "독립형 차트 컴포넌트"
-const TradingChart = ({ rawChartData, selectedPeriod, chartType, activeTheme, activeStocks }) => {
-  const chartContainerRef = useRef(null);
-
-  useEffect(() => {
-    if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
-
-    // 데이터 기간 자르기
-    const lastDataPoint = rawChartData[rawChartData.length - 1];
-    if (!lastDataPoint) return; 
-    
-    const endDate = new Date(lastDataPoint.time);
-    let startDate = new Date(endDate);
-
-    if (selectedPeriod === '1M') startDate.setMonth(startDate.getMonth() - 1);
-    else if (selectedPeriod === '3M') startDate.setMonth(startDate.getMonth() - 3);
-    else if (selectedPeriod === '1Y') startDate.setFullYear(startDate.getFullYear() - 1);
-    else if (selectedPeriod === '3Y') startDate.setFullYear(startDate.getFullYear() - 3);
-    else if (selectedPeriod === '5Y') startDate.setFullYear(startDate.getFullYear() - 5);
-
-    const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
-    if (filteredData.length === 0) return;
-
-    // 도화지 초기화
-    chartContainerRef.current.innerHTML = '';
-
-    // 차트 생성 (통째로 가져온 LightweightCharts 모듈 사용)
-    const chart = LightweightCharts.createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight || 400,
-      layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8' },
-      grid: { vertLines: { color: 'rgba(51, 65, 85, 0.2)' }, horzLines: { color: 'rgba(51, 65, 85, 0.2)' } },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true, fixLeftEdge: true, fixRightEdge: true },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
-    });
-
-    const toolTip = document.createElement('div');
-    toolTip.className = 'absolute top-4 left-4 z-50 pointer-events-none bg-[#0f172a]/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl transition-opacity opacity-0 min-w-[200px]';
-    chartContainerRef.current.appendChild(toolTip);
-
-    const seriesMap = new Map();
-
-    // 종목 라인 생성
-    activeTheme.stocks.forEach(stock => {
-      if (!activeStocks.includes(stock.name)) return;
-
-      const lineSeries = chart.addLineSeries({
-        color: stock.color,
-        lineWidth: 2.5,
-        crosshairMarkerRadius: 5,
-      });
-
-      let basePrice = null;
-      const dataPoints = filteredData.map(d => {
-        if (d[stock.name] === undefined) return null;
-        if (basePrice === null) basePrice = d[stock.name];
-        const val = chartType === 'price' ? d[stock.name] : (((d[stock.name] - basePrice) / basePrice) * 100);
-        return { time: d.time, value: val };
-      }).filter(p => p !== null);
-
-      if (dataPoints.length > 0) {
-        lineSeries.setData(dataPoints);
-        seriesMap.set(stock.name, { series: lineSeries, color: stock.color });
-      }
-    });
-
-    // 툴팁 연동
-    chart.subscribeCrosshairMove(param => {
-      if (!param.point || !param.time || param.point.x < 0 || param.point.y < 0) {
-        toolTip.style.opacity = '0';
-      } else {
-        toolTip.style.opacity = '1';
-        let html = `<div class="text-xs font-black tracking-widest text-slate-400 mb-3 pb-2 border-b border-slate-700 uppercase">${param.time}</div>`;
-        
-        seriesMap.forEach(({ series, color }, stockName) => {
-          const data = param.seriesData.get(series);
-          if (data) {
-            const valStr = chartType === 'price' ? data.value.toLocaleString() + '원' : data.value.toFixed(2) + '%';
-            html += `
-              <div class="flex justify-between items-center gap-6 mb-2">
-                <div class="flex items-center gap-2">
-                  <div class="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style="background-color: ${color}"></div>
-                  <span class="text-sm font-bold text-slate-200">${stockName}</span>
-                </div>
-                <span class="text-sm font-mono font-black" style="color: ${color}">${valStr}</span>
-              </div>`;
-          }
-        });
-        toolTip.innerHTML = html;
-      }
-    });
-
-    chart.timeScale().fitContent();
-
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight
-        });
-      }
-    };
-    window.addEventListener('resize', handleResize);
-
-    // 깔끔한 메모리 해제
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, [rawChartData, selectedPeriod, chartType, activeTheme, activeStocks]);
-
-  return <div ref={chartContainerRef} className="w-full h-full min-h-[350px] relative" />;
-};
-
-
-// 메인 대시보드 화면
 export default function App() {
   const [activeTheme, setActiveTheme] = useState(null);
   const [activeStocks, setActiveStocks] = useState([]); 
@@ -170,10 +53,10 @@ export default function App() {
   const [selectedPeriod, setSelectedPeriod] = useState('3M'); 
   const [chartType, setChartType] = useState('price'); 
   const [watchList, setWatchList] = useState([]); 
-
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  // 데이터 패칭 로직 (안전한 순차 호출 및 Forward Fill 유지)
   const handleThemeClick = async (theme) => {
     setIsLoading(true);
     setIsAiLoading(true);
@@ -196,7 +79,7 @@ export default function App() {
             });
           }
         } catch (fetchErr) {
-          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`, fetchErr);
+          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`);
         }
       }
 
@@ -206,11 +89,8 @@ export default function App() {
       const filledData = sortedData.map(row => {
         const newRow = { ...row };
         theme.stocks.forEach(stock => {
-          if (newRow[stock.name] !== undefined) {
-            lastKnownPrices[stock.name] = newRow[stock.name];
-          } else if (lastKnownPrices[stock.name] !== undefined) {
-            newRow[stock.name] = lastKnownPrices[stock.name];
-          }
+          if (newRow[stock.name] !== undefined) lastKnownPrices[stock.name] = newRow[stock.name];
+          else if (lastKnownPrices[stock.name] !== undefined) newRow[stock.name] = lastKnownPrices[stock.name];
         });
         return newRow;
       });
@@ -219,18 +99,96 @@ export default function App() {
 
       fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
         .then(res => res.json())
-        .then(data => {
-          if (data && data.report) setAiReport(data.report);
-          else setAiReport("현재 테마에 대한 AI 분석 데이터를 불러올 수 없습니다.");
-        })
-        .catch(err => setAiReport("AI 서버와 연결이 지연되고 있습니다."))
+        .then(data => setAiReport(data?.report || "분석 데이터를 불러올 수 없습니다."))
+        .catch(() => setAiReport("서버 연결 지연."))
         .finally(() => setIsAiLoading(false));
 
     } catch (error) {
-      console.error("전체 데이터 로딩 중 에러 발생:", error);
+      console.error("로딩 에러:", error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // 🚀 Highcharts를 위한 데이터 가공 (React 친화적 선언형 방식)
+  const getChartOptions = () => {
+    if (rawChartData.length === 0 || !activeTheme) return {};
+
+    // 1. 기간 필터링
+    const lastDataPoint = rawChartData[rawChartData.length - 1];
+    let startDate = new Date(lastDataPoint.time);
+    
+    if (selectedPeriod === '1M') startDate.setMonth(startDate.getMonth() - 1);
+    else if (selectedPeriod === '3M') startDate.setMonth(startDate.getMonth() - 3);
+    else if (selectedPeriod === '1Y') startDate.setFullYear(startDate.getFullYear() - 1);
+    else if (selectedPeriod === '3Y') startDate.setFullYear(startDate.getFullYear() - 3);
+    else if (selectedPeriod === '5Y') startDate.setFullYear(startDate.getFullYear() - 5);
+
+    const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
+    if (filteredData.length === 0) return {};
+
+    // 2. Highcharts Series 형식에 맞게 변환
+    const series = activeTheme.stocks
+      .filter(s => activeStocks.includes(s.name))
+      .map(stock => {
+        let basePrice = null;
+        const data = filteredData.map(d => {
+          if (d[stock.name] === undefined) return null;
+          if (basePrice === null) basePrice = d[stock.name];
+          const val = chartType === 'price' ? d[stock.name] : parseFloat((((d[stock.name] - basePrice) / basePrice) * 100).toFixed(2));
+          // Highcharts는 [timestamp, value] 배열을 요구함
+          return [new Date(d.time).getTime(), val];
+        }).filter(p => p !== null);
+
+        return { name: stock.name, data: data, color: stock.color };
+      });
+
+    // 3. Highcharts 옵션 설정 (프리미엄 다크 테마 및 줌 기능)
+    return {
+      chart: {
+        type: 'line',
+        backgroundColor: 'transparent',
+        zoomType: 'x', // 🚀 마우스 드래그로 X축 줌 기능
+        panning: true,
+        panKey: 'shift', // Shift + 드래그로 패닝
+        style: { fontFamily: 'inherit' }
+      },
+      title: { text: null },
+      xAxis: {
+        type: 'datetime',
+        lineColor: '#334155',
+        tickColor: '#334155',
+        labels: { style: { color: '#94a3b8' } },
+        crosshair: { color: '#475569', dashStyle: 'dash' }
+      },
+      yAxis: {
+        title: { text: null },
+        gridLineColor: '#1e293b',
+        labels: {
+          style: { color: '#94a3b8' },
+          formatter: function() { return chartType === 'price' ? this.value.toLocaleString() + '원' : this.value + '%'; }
+        }
+      },
+      tooltip: {
+        shared: true, // 여러 종목 데이터를 한 툴팁에 표시
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        borderColor: '#334155',
+        borderRadius: 8,
+        style: { color: '#f8fafc', fontSize: '12px' },
+        valueSuffix: chartType === 'price' ? ' 원' : '%',
+        valueDecimals: chartType === 'price' ? 0 : 2
+      },
+      plotOptions: {
+        series: {
+          marker: { enabled: false, states: { hover: { enabled: true, radius: 5 } } },
+          lineWidth: 2.5,
+          states: { hover: { lineWidth: 3 } }
+        }
+      },
+      legend: { enabled: false }, // 커스텀 체크박스 사용하므로 숨김
+      credits: { enabled: false },
+      series: series
+    };
   };
 
   const toggleStock = (stockName) => {
@@ -330,22 +288,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🚀 독립된 컴포넌트로 완벽하게 보호받는 차트 영역 */}
-            <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col">
+            {/* 🚀 Highcharts React 공식 컴포넌트 사용 (절대 뻗지 않음) */}
+            <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col p-4">
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              
-              <TradingChart 
-                rawChartData={rawChartData} 
-                selectedPeriod={selectedPeriod} 
-                chartType={chartType} 
-                activeTheme={activeTheme} 
-                activeStocks={activeStocks} 
-              />
-
+              {rawChartData.length > 0 && !isLoading && (
+                <HighchartsReact
+                  highcharts={Highcharts}
+                  options={getChartOptions()}
+                  containerProps={{ style: { height: "100%", width: "100%" } }}
+                />
+              )}
             </div>
             
             <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
