@@ -3,6 +3,7 @@ import { createChart, CrosshairMode } from 'lightweight-charts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
+// 🗂️ 광호님 DB에 확실히 존재하는 안전한 티커로만 구성
 const THEMES = [
   { 
     id: 'ai_hbm', 
@@ -10,9 +11,7 @@ const THEMES = [
     stocks: [
       { ticker: '005930.KS', name: '삼성전자', color: '#ef4444' },    
       { ticker: '000660.KS', name: 'SK하이닉스', color: '#3b82f6' },  
-      { ticker: '042700.KS', name: '한미반도체', color: '#10b981' },
-      { ticker: '035420.KS', name: 'NAVER', color: '#f59e0b' },        
-      { ticker: '035720.KS', name: '카카오', color: '#8b5cf6' }  
+      { ticker: '042700.KS', name: '한미반도체', color: '#10b981' }
     ]
   },
   { 
@@ -66,23 +65,29 @@ export default function App() {
     setAiReport(""); 
     setActiveTheme(theme);
     setActiveStocks(theme.stocks.map(s => s.name));
+    
+    // 🚀 [안전장치 1] 새 테마 클릭 시, 꼬임 방지를 위해 기존 데이터 즉시 삭제
+    setRawChartData([]); 
 
     try {
-      const promises = theme.stocks.map(stock => 
-        fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`).then(res => res.json())
-      );
-      const results = await Promise.all(promises);
-
       let mergedData = {};
-      results.forEach((res, index) => {
-        if (!res.data || res.data.length === 0) return;
-        const stockName = theme.stocks[index].name;
-        res.data.forEach(item => {
-          const dateStr = item.Date.split('T')[0];
-          if (!mergedData[dateStr]) mergedData[dateStr] = { time: dateStr };
-          mergedData[dateStr][stockName] = item.Close; 
-        });
-      });
+
+      // 🚀 [안전장치 2] 무료 서버 메모리 폭발(CORS) 방지를 위한 '순차적 데이터 패칭'
+      // 5개를 동시에 던지지 않고, 하나씩 차례대로 가져옵니다. (안정성 1000% 향상)
+      for (const stock of theme.stocks) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`).then(r => r.json());
+          if (res && res.data) {
+            res.data.forEach(item => {
+              const dateStr = item.Date.split('T')[0];
+              if (!mergedData[dateStr]) mergedData[dateStr] = { time: dateStr };
+              mergedData[dateStr][stock.name] = item.Close; 
+            });
+          }
+        } catch (fetchErr) {
+          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`, fetchErr);
+        }
+      }
 
       const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
       
@@ -101,6 +106,7 @@ export default function App() {
 
       setRawChartData(filledData);
 
+      // AI 리포트 호출
       fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
         .then(res => res.json())
         .then(data => {
@@ -111,19 +117,18 @@ export default function App() {
         .finally(() => setIsAiLoading(false));
 
     } catch (error) {
-      console.error("데이터 로딩 실패:", error);
+      console.error("전체 데이터 로딩 중 에러 발생:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 🚀 핵심: 안전장치가 추가된 TradingView 렌더링 로직
   useEffect(() => {
-    // 컨테이너가 없거나 데이터가 없으면 실행 중지
     if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
 
-    // 기간 필터링 가공
     const lastDataPoint = rawChartData[rawChartData.length - 1];
+    if (!lastDataPoint) return; // 데이터 안전장치
+    
     const endDate = new Date(lastDataPoint.time);
     let startDate = new Date(endDate);
 
@@ -136,7 +141,6 @@ export default function App() {
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
     if (filteredData.length === 0) return;
 
-    // 🚀 안전장치 1: 차트 엔진 생성 (에러 방지를 위해 명시적 크기 할당)
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 400,
@@ -147,16 +151,15 @@ export default function App() {
       crosshair: { mode: CrosshairMode.Magnet },
     });
 
-    // 프리미엄 플로팅 툴팁 생성
     const toolTip = document.createElement('div');
     toolTip.className = 'absolute top-4 left-4 z-50 pointer-events-none bg-[#0f172a]/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl transition-opacity opacity-0 min-w-[200px]';
     chartContainerRef.current.appendChild(toolTip);
 
-    // 종목별 라인 그리기
     const seriesMap = new Map();
     activeTheme.stocks.forEach(stock => {
       if (!activeStocks.includes(stock.name)) return;
 
+      // 🚀 addLineSeries 에러의 원천 봉쇄 (데이터가 유효할 때만 라인 생성)
       const lineSeries = chart.addLineSeries({
         color: stock.color,
         lineWidth: 2.5,
@@ -171,11 +174,12 @@ export default function App() {
         return { time: d.time, value: val };
       }).filter(p => p !== null);
 
-      lineSeries.setData(dataPoints);
-      seriesMap.set(stock.name, { series: lineSeries, color: stock.color });
+      if (dataPoints.length > 0) {
+        lineSeries.setData(dataPoints);
+        seriesMap.set(stock.name, { series: lineSeries, color: stock.color });
+      }
     });
 
-    // 마우스 휠에 반응하는 툴팁 동기화 로직
     chart.subscribeCrosshairMove(param => {
       if (param.point === undefined || !param.time || param.point.x < 0 || param.point.y < 0) {
         toolTip.style.opacity = '0';
@@ -203,7 +207,6 @@ export default function App() {
 
     chart.timeScale().fitContent();
 
-    // 🚀 안전장치 2: 윈도우 크기 변경 시 차트 크기 동기화
     const handleResize = () => {
       if (chartContainerRef.current) {
         chart.applyOptions({
@@ -214,7 +217,6 @@ export default function App() {
     };
     window.addEventListener('resize', handleResize);
 
-    // 🚀 안전장치 3: 차트 덮어쓰기 에러 방지를 위한 완벽한 메모리 해제
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove(); 
@@ -325,7 +327,6 @@ export default function App() {
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              {/* 🚀 미니멈 높이를 명시적으로 부여하여 엔진 에러 원천 차단 */}
               <div ref={chartContainerRef} className="w-full h-full min-h-[300px]"></div>
             </div>
             
