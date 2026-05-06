@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { createChart, CrosshairMode } from 'lightweight-charts';
+// 🚀 [해결책 1] Vercel이 코드를 삭제하지 못하도록 통째로 가져오는 방식
+import * as LightweightCharts from 'lightweight-charts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// 🗂️ 광호님 DB에 확실히 존재하는 안전한 티커로만 구성
 const THEMES = [
   { 
     id: 'ai_hbm', 
@@ -45,89 +45,16 @@ const Typewriter = ({ text }) => {
   return <p className="text-sm text-blue-300 font-medium leading-relaxed whitespace-pre-line">{displayedText}</p>;
 };
 
-export default function App() {
-  const [activeTheme, setActiveTheme] = useState(null);
-  const [activeStocks, setActiveStocks] = useState([]); 
-  const [isLoading, setIsLoading] = useState(false);
-  const [rawChartData, setRawChartData] = useState([]); 
-  const [selectedPeriod, setSelectedPeriod] = useState('3M'); 
-  const [chartType, setChartType] = useState('price'); 
-  const [watchList, setWatchList] = useState([]); 
-
-  const [aiReport, setAiReport] = useState("");
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
+// 🚀 [해결책 2] 다른 화면과 충돌하지 않도록 완전히 격리시킨 "독립형 차트 컴포넌트"
+const TradingChart = ({ rawChartData, selectedPeriod, chartType, activeTheme, activeStocks }) => {
   const chartContainerRef = useRef(null);
-
-  const handleThemeClick = async (theme) => {
-    setIsLoading(true);
-    setIsAiLoading(true);
-    setAiReport(""); 
-    setActiveTheme(theme);
-    setActiveStocks(theme.stocks.map(s => s.name));
-    
-    // 🚀 [안전장치 1] 새 테마 클릭 시, 꼬임 방지를 위해 기존 데이터 즉시 삭제
-    setRawChartData([]); 
-
-    try {
-      let mergedData = {};
-
-      // 🚀 [안전장치 2] 무료 서버 메모리 폭발(CORS) 방지를 위한 '순차적 데이터 패칭'
-      // 5개를 동시에 던지지 않고, 하나씩 차례대로 가져옵니다. (안정성 1000% 향상)
-      for (const stock of theme.stocks) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`).then(r => r.json());
-          if (res && res.data) {
-            res.data.forEach(item => {
-              const dateStr = item.Date.split('T')[0];
-              if (!mergedData[dateStr]) mergedData[dateStr] = { time: dateStr };
-              mergedData[dateStr][stock.name] = item.Close; 
-            });
-          }
-        } catch (fetchErr) {
-          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`, fetchErr);
-        }
-      }
-
-      const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
-      
-      let lastKnownPrices = {}; 
-      const filledData = sortedData.map(row => {
-        const newRow = { ...row };
-        theme.stocks.forEach(stock => {
-          if (newRow[stock.name] !== undefined) {
-            lastKnownPrices[stock.name] = newRow[stock.name];
-          } else if (lastKnownPrices[stock.name] !== undefined) {
-            newRow[stock.name] = lastKnownPrices[stock.name];
-          }
-        });
-        return newRow;
-      });
-
-      setRawChartData(filledData);
-
-      // AI 리포트 호출
-      fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.report) setAiReport(data.report);
-          else setAiReport("현재 테마에 대한 AI 분석 데이터를 불러올 수 없습니다.");
-        })
-        .catch(err => setAiReport("AI 서버와 연결이 지연되고 있습니다."))
-        .finally(() => setIsAiLoading(false));
-
-    } catch (error) {
-      console.error("전체 데이터 로딩 중 에러 발생:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
 
+    // 데이터 기간 자르기
     const lastDataPoint = rawChartData[rawChartData.length - 1];
-    if (!lastDataPoint) return; // 데이터 안전장치
+    if (!lastDataPoint) return; 
     
     const endDate = new Date(lastDataPoint.time);
     let startDate = new Date(endDate);
@@ -141,14 +68,18 @@ export default function App() {
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
     if (filteredData.length === 0) return;
 
-    const chart = createChart(chartContainerRef.current, {
+    // 도화지 초기화
+    chartContainerRef.current.innerHTML = '';
+
+    // 차트 생성 (통째로 가져온 LightweightCharts 모듈 사용)
+    const chart = LightweightCharts.createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 400,
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8' },
-      grid: { vertLines: { color: 'rgba(51, 65, 85, 0.3)' }, horzLines: { color: 'rgba(51, 65, 85, 0.3)' } },
+      grid: { vertLines: { color: 'rgba(51, 65, 85, 0.2)' }, horzLines: { color: 'rgba(51, 65, 85, 0.2)' } },
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false, timeVisible: true, fixLeftEdge: true, fixRightEdge: true },
-      crosshair: { mode: CrosshairMode.Magnet },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
     });
 
     const toolTip = document.createElement('div');
@@ -156,10 +87,11 @@ export default function App() {
     chartContainerRef.current.appendChild(toolTip);
 
     const seriesMap = new Map();
+
+    // 종목 라인 생성
     activeTheme.stocks.forEach(stock => {
       if (!activeStocks.includes(stock.name)) return;
 
-      // 🚀 addLineSeries 에러의 원천 봉쇄 (데이터가 유효할 때만 라인 생성)
       const lineSeries = chart.addLineSeries({
         color: stock.color,
         lineWidth: 2.5,
@@ -180,8 +112,9 @@ export default function App() {
       }
     });
 
+    // 툴팁 연동
     chart.subscribeCrosshairMove(param => {
-      if (param.point === undefined || !param.time || param.point.x < 0 || param.point.y < 0) {
+      if (!param.point || !param.time || param.point.x < 0 || param.point.y < 0) {
         toolTip.style.opacity = '0';
       } else {
         toolTip.style.opacity = '1';
@@ -217,12 +150,88 @@ export default function App() {
     };
     window.addEventListener('resize', handleResize);
 
+    // 깔끔한 메모리 해제
     return () => {
       window.removeEventListener('resize', handleResize);
-      chart.remove(); 
-      toolTip.remove(); 
+      chart.remove();
     };
   }, [rawChartData, selectedPeriod, chartType, activeTheme, activeStocks]);
+
+  return <div ref={chartContainerRef} className="w-full h-full min-h-[350px] relative" />;
+};
+
+
+// 메인 대시보드 화면
+export default function App() {
+  const [activeTheme, setActiveTheme] = useState(null);
+  const [activeStocks, setActiveStocks] = useState([]); 
+  const [isLoading, setIsLoading] = useState(false);
+  const [rawChartData, setRawChartData] = useState([]); 
+  const [selectedPeriod, setSelectedPeriod] = useState('3M'); 
+  const [chartType, setChartType] = useState('price'); 
+  const [watchList, setWatchList] = useState([]); 
+
+  const [aiReport, setAiReport] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const handleThemeClick = async (theme) => {
+    setIsLoading(true);
+    setIsAiLoading(true);
+    setAiReport(""); 
+    setActiveTheme(theme);
+    setActiveStocks(theme.stocks.map(s => s.name));
+    setRawChartData([]); 
+
+    try {
+      let mergedData = {};
+
+      for (const stock of theme.stocks) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`).then(r => r.json());
+          if (res && res.data) {
+            res.data.forEach(item => {
+              const dateStr = item.Date.split('T')[0];
+              if (!mergedData[dateStr]) mergedData[dateStr] = { time: dateStr };
+              mergedData[dateStr][stock.name] = item.Close; 
+            });
+          }
+        } catch (fetchErr) {
+          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`, fetchErr);
+        }
+      }
+
+      const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
+      
+      let lastKnownPrices = {}; 
+      const filledData = sortedData.map(row => {
+        const newRow = { ...row };
+        theme.stocks.forEach(stock => {
+          if (newRow[stock.name] !== undefined) {
+            lastKnownPrices[stock.name] = newRow[stock.name];
+          } else if (lastKnownPrices[stock.name] !== undefined) {
+            newRow[stock.name] = lastKnownPrices[stock.name];
+          }
+        });
+        return newRow;
+      });
+
+      setRawChartData(filledData);
+
+      fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.report) setAiReport(data.report);
+          else setAiReport("현재 테마에 대한 AI 분석 데이터를 불러올 수 없습니다.");
+        })
+        .catch(err => setAiReport("AI 서버와 연결이 지연되고 있습니다."))
+        .finally(() => setIsAiLoading(false));
+
+    } catch (error) {
+      console.error("전체 데이터 로딩 중 에러 발생:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const toggleStock = (stockName) => {
     setActiveStocks(prev => prev.includes(stockName) ? prev.filter(n => n !== stockName) : [...prev, stockName]);
@@ -321,13 +330,22 @@ export default function App() {
               </div>
             </div>
 
+            {/* 🚀 독립된 컴포넌트로 완벽하게 보호받는 차트 영역 */}
             <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col">
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              <div ref={chartContainerRef} className="w-full h-full min-h-[300px]"></div>
+              
+              <TradingChart 
+                rawChartData={rawChartData} 
+                selectedPeriod={selectedPeriod} 
+                chartType={chartType} 
+                activeTheme={activeTheme} 
+                activeStocks={activeStocks} 
+              />
+
             </div>
             
             <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
