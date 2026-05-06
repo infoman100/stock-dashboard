@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { createChart } from 'lightweight-charts';
+import { createChart, CrosshairMode } from 'lightweight-charts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// 🗂️ 에러가 없도록 확실한 우량주로 임시 세팅
 const THEMES = [
   { 
     id: 'ai_hbm', 
@@ -29,7 +28,6 @@ const THEMES = [
   }
 ];
 
-// 🤖 AI 타이핑 효과 컴포넌트
 const Typewriter = ({ text }) => {
   const [displayedText, setDisplayedText] = useState("");
 
@@ -60,10 +58,7 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 차트를 그릴 DOM 레퍼런스
   const chartContainerRef = useRef(null);
-  // 차트 인스턴스 보관용
-  const chartRef = useRef(null);
 
   const handleThemeClick = async (theme) => {
     setIsLoading(true);
@@ -83,7 +78,6 @@ export default function App() {
         if (!res.data || res.data.length === 0) return;
         const stockName = theme.stocks[index].name;
         res.data.forEach(item => {
-          // TradingView는 YYYY-MM-DD 포맷을 요구합니다.
           const dateStr = item.Date.split('T')[0];
           if (!mergedData[dateStr]) mergedData[dateStr] = { time: dateStr };
           mergedData[dateStr][stockName] = item.Close; 
@@ -92,7 +86,6 @@ export default function App() {
 
       const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
       
-      // 결측치(빈 날짜) Forward Fill 해결
       let lastKnownPrices = {}; 
       const filledData = sortedData.map(row => {
         const newRow = { ...row };
@@ -108,7 +101,6 @@ export default function App() {
 
       setRawChartData(filledData);
 
-      // AI 리포트 호출
       fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
         .then(res => res.json())
         .then(data => {
@@ -125,11 +117,12 @@ export default function App() {
     }
   };
 
-  // 🚀 핵심: TradingView 차트 렌더링 로직 (초당 60프레임 보장)
+  // 🚀 핵심: 안전장치가 추가된 TradingView 렌더링 로직
   useEffect(() => {
+    // 컨테이너가 없거나 데이터가 없으면 실행 중지
     if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
 
-    // 1. 기간 필터링 가공
+    // 기간 필터링 가공
     const lastDataPoint = rawChartData[rawChartData.length - 1];
     const endDate = new Date(lastDataPoint.time);
     let startDate = new Date(endDate);
@@ -143,26 +136,23 @@ export default function App() {
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
     if (filteredData.length === 0) return;
 
-    // 2. 기존 차트 지우기 및 툴팁 초기화
-    chartContainerRef.current.innerHTML = '';
-    
-    // 3. 차트 엔진 생성 (고급스러운 다크 테마 적용)
+    // 🚀 안전장치 1: 차트 엔진 생성 (에러 방지를 위해 명시적 크기 할당)
     const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight || 400,
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8' },
       grid: { vertLines: { color: 'rgba(51, 65, 85, 0.3)' }, horzLines: { color: 'rgba(51, 65, 85, 0.3)' } },
-      rightPriceScale: { borderVisible: false, autoScale: true },
-      timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: true },
-      crosshair: { mode: 1, vertLine: { color: '#64748b', width: 1, style: 1 }, horzLine: { color: '#64748b', width: 1, style: 1 } },
-      autoSize: true, // 반응형 자동 크기 조절
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: true, fixLeftEdge: true, fixRightEdge: true },
+      crosshair: { mode: CrosshairMode.Magnet },
     });
-    chartRef.current = chart;
 
-    // 4. 프리미엄 플로팅 툴팁 생성
+    // 프리미엄 플로팅 툴팁 생성
     const toolTip = document.createElement('div');
     toolTip.className = 'absolute top-4 left-4 z-50 pointer-events-none bg-[#0f172a]/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl transition-opacity opacity-0 min-w-[200px]';
     chartContainerRef.current.appendChild(toolTip);
 
-    // 5. 종목별 라인 그리기
+    // 종목별 라인 그리기
     const seriesMap = new Map();
     activeTheme.stocks.forEach(stock => {
       if (!activeStocks.includes(stock.name)) return;
@@ -171,10 +161,6 @@ export default function App() {
         color: stock.color,
         lineWidth: 2.5,
         crosshairMarkerRadius: 5,
-        priceFormat: {
-          type: 'custom',
-          formatter: price => chartType === 'price' ? price.toLocaleString() : price.toFixed(2) + '%',
-        },
       });
 
       let basePrice = null;
@@ -189,7 +175,7 @@ export default function App() {
       seriesMap.set(stock.name, { series: lineSeries, color: stock.color });
     });
 
-    // 6. 마우스 휠에 반응하는 툴팁 동기화 로직
+    // 마우스 휠에 반응하는 툴팁 동기화 로직
     chart.subscribeCrosshairMove(param => {
       if (param.point === undefined || !param.time || param.point.x < 0 || param.point.y < 0) {
         toolTip.style.opacity = '0';
@@ -217,8 +203,22 @@ export default function App() {
 
     chart.timeScale().fitContent();
 
+    // 🚀 안전장치 2: 윈도우 크기 변경 시 차트 크기 동기화
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight
+        });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    // 🚀 안전장치 3: 차트 덮어쓰기 에러 방지를 위한 완벽한 메모리 해제
     return () => {
-      chart.remove();
+      window.removeEventListener('resize', handleResize);
+      chart.remove(); 
+      toolTip.remove(); 
     };
   }, [rawChartData, selectedPeriod, chartType, activeTheme, activeStocks]);
 
@@ -319,15 +319,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🚀 전 세계 1티어 TradingView 차트가 렌더링될 영역 */}
             <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col">
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              {/* 차트 컨테이너에 ref를 걸어 이곳에 Canvas 차트가 그려집니다. */}
-              <div ref={chartContainerRef} className="w-full h-full"></div>
+              {/* 🚀 미니멈 높이를 명시적으로 부여하여 엔진 에러 원천 차단 */}
+              <div ref={chartContainerRef} className="w-full h-full min-h-[300px]"></div>
             </div>
             
             <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
