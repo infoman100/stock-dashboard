@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import Highcharts from 'highcharts';
-import HighchartsReact from 'highcharts-react-official';
+import React, { useState, useEffect, useRef } from 'react';
+// 🚀 [해결책] React Wrapper 껍데기를 버리고 오리지널 순정 엔진만 직수입합니다.
+import * as Highcharts from 'highcharts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -56,7 +56,10 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 데이터 패칭 로직 (안전한 순차 호출 및 Forward Fill 유지)
+  // 차트가 그려질 DOM과 엔진 보관용 Ref
+  const chartContainerRef = useRef(null);
+  const chartInstanceRef = useRef(null);
+
   const handleThemeClick = async (theme) => {
     setIsLoading(true);
     setIsAiLoading(true);
@@ -110,9 +113,9 @@ export default function App() {
     }
   };
 
-  // 🚀 Highcharts를 위한 데이터 가공 (React 친화적 선언형 방식)
-  const getChartOptions = () => {
-    if (rawChartData.length === 0 || !activeTheme) return {};
+  // 🚀 순수 Highcharts 엔진을 사용하여 화면에 직접 차트를 박아버립니다. (에러 원천 차단)
+  useEffect(() => {
+    if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
 
     // 1. 기간 필터링
     const lastDataPoint = rawChartData[rawChartData.length - 1];
@@ -125,9 +128,9 @@ export default function App() {
     else if (selectedPeriod === '5Y') startDate.setFullYear(startDate.getFullYear() - 5);
 
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
-    if (filteredData.length === 0) return {};
+    if (filteredData.length === 0) return;
 
-    // 2. Highcharts Series 형식에 맞게 변환
+    // 2. Highcharts 전용 데이터 포맷으로 변환
     const series = activeTheme.stocks
       .filter(s => activeStocks.includes(s.name))
       .map(stock => {
@@ -136,21 +139,20 @@ export default function App() {
           if (d[stock.name] === undefined) return null;
           if (basePrice === null) basePrice = d[stock.name];
           const val = chartType === 'price' ? d[stock.name] : parseFloat((((d[stock.name] - basePrice) / basePrice) * 100).toFixed(2));
-          // Highcharts는 [timestamp, value] 배열을 요구함
           return [new Date(d.time).getTime(), val];
         }).filter(p => p !== null);
 
         return { name: stock.name, data: data, color: stock.color };
       });
 
-    // 3. Highcharts 옵션 설정 (프리미엄 다크 테마 및 줌 기능)
-    return {
+    // 3. 차트 옵션 설정
+    const options = {
       chart: {
         type: 'line',
         backgroundColor: 'transparent',
-        zoomType: 'x', // 🚀 마우스 드래그로 X축 줌 기능
+        zoomType: 'x', // 🚀 마우스 드래그(드래그 시 돋보기)로 X축 줌 기능
         panning: true,
-        panKey: 'shift', // Shift + 드래그로 패닝
+        panKey: 'shift', // Shift 누른 상태로 이동(Pan)
         style: { fontFamily: 'inherit' }
       },
       title: { text: null },
@@ -170,7 +172,7 @@ export default function App() {
         }
       },
       tooltip: {
-        shared: true, // 여러 종목 데이터를 한 툴팁에 표시
+        shared: true,
         backgroundColor: 'rgba(15, 23, 42, 0.95)',
         borderColor: '#334155',
         borderRadius: 8,
@@ -182,14 +184,31 @@ export default function App() {
         series: {
           marker: { enabled: false, states: { hover: { enabled: true, radius: 5 } } },
           lineWidth: 2.5,
-          states: { hover: { lineWidth: 3 } }
+          states: { hover: { lineWidth: 3 } },
+          animation: false // 빠른 렌더링을 위해 애니메이션 최소화
         }
       },
-      legend: { enabled: false }, // 커스텀 체크박스 사용하므로 숨김
+      legend: { enabled: false },
       credits: { enabled: false },
       series: series
     };
-  };
+
+    // 4. 기존 차트가 있으면 깔끔하게 파괴
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.destroy();
+    }
+
+    // 5. DOM에 직접 차트 주입
+    chartInstanceRef.current = Highcharts.chart(chartContainerRef.current, options);
+
+    // 컴포넌트가 꺼지거나 데이터가 바뀔 때 메모리 해제
+    return () => {
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.destroy();
+        chartInstanceRef.current = null;
+      }
+    };
+  }, [rawChartData, selectedPeriod, chartType, activeTheme, activeStocks]);
 
   const toggleStock = (stockName) => {
     setActiveStocks(prev => prev.includes(stockName) ? prev.filter(n => n !== stockName) : [...prev, stockName]);
@@ -288,20 +307,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🚀 Highcharts React 공식 컴포넌트 사용 (절대 뻗지 않음) */}
+            {/* 🚀 React 래퍼를 쓰지 않고, ref 도화지에 오리지널 엔진으로 직접 차트를 그립니다. */}
             <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col p-4">
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              {rawChartData.length > 0 && !isLoading && (
-                <HighchartsReact
-                  highcharts={Highcharts}
-                  options={getChartOptions()}
-                  containerProps={{ style: { height: "100%", width: "100%" } }}
-                />
-              )}
+              <div ref={chartContainerRef} className="w-full h-full min-h-[350px]"></div>
             </div>
             
             <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
