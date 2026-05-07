@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-// 🚀 [해결책] React Wrapper 껍데기를 버리고 오리지널 순정 엔진만 직수입합니다.
-import * as Highcharts from 'highcharts';
+import React, { useState, useEffect } from 'react';
+// 🚀 [해결책] React 생태계에서 가장 부드럽고 안전한 ECharts 공식 래퍼 도입
+import ReactECharts from 'echarts-for-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -56,10 +56,7 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 차트가 그려질 DOM과 엔진 보관용 Ref
-  const chartContainerRef = useRef(null);
-  const chartInstanceRef = useRef(null);
-
+  // 데이터 패칭 로직 (순차 호출 & Forward Fill 유지)
   const handleThemeClick = async (theme) => {
     setIsLoading(true);
     setIsAiLoading(true);
@@ -82,7 +79,7 @@ export default function App() {
             });
           }
         } catch (fetchErr) {
-          console.warn(`${stock.ticker} 데이터를 가져오는 데 실패했습니다.`);
+          console.warn(`${stock.ticker} 데이터 로딩 실패.`);
         }
       }
 
@@ -113,11 +110,10 @@ export default function App() {
     }
   };
 
-  // 🚀 순수 Highcharts 엔진을 사용하여 화면에 직접 차트를 박아버립니다. (에러 원천 차단)
-  useEffect(() => {
-    if (!chartContainerRef.current || rawChartData.length === 0 || !activeTheme) return;
+  // 🚀 Canvas 기반의 초고성능 ECharts 옵션 구성
+  const getEChartsOption = () => {
+    if (rawChartData.length === 0 || !activeTheme) return {};
 
-    // 1. 기간 필터링
     const lastDataPoint = rawChartData[rawChartData.length - 1];
     let startDate = new Date(lastDataPoint.time);
     
@@ -128,9 +124,9 @@ export default function App() {
     else if (selectedPeriod === '5Y') startDate.setFullYear(startDate.getFullYear() - 5);
 
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
-    if (filteredData.length === 0) return;
+    if (filteredData.length === 0) return {};
 
-    // 2. Highcharts 전용 데이터 포맷으로 변환
+    // ECharts Series 데이터 포맷팅
     const series = activeTheme.stocks
       .filter(s => activeStocks.includes(s.name))
       .map(stock => {
@@ -142,73 +138,83 @@ export default function App() {
           return [new Date(d.time).getTime(), val];
         }).filter(p => p !== null);
 
-        return { name: stock.name, data: data, color: stock.color };
+        return {
+          name: stock.name,
+          type: 'line',
+          showSymbol: false, // 평소엔 점 숨기기 (부드러운 연출)
+          data: data,
+          itemStyle: { color: stock.color },
+          lineStyle: { width: 2.5 },
+          emphasis: { focus: 'series', lineStyle: { width: 4 } } // 마우스 올리면 해당 선만 강조
+        };
       });
 
-    // 3. 차트 옵션 설정
-    const options = {
-      chart: {
-        type: 'line',
-        backgroundColor: 'transparent',
-        zoomType: 'x', // 🚀 마우스 드래그(드래그 시 돋보기)로 X축 줌 기능
-        panning: true,
-        panKey: 'shift', // Shift 누른 상태로 이동(Pan)
-        style: { fontFamily: 'inherit' }
-      },
-      title: { text: null },
-      xAxis: {
-        type: 'datetime',
-        lineColor: '#334155',
-        tickColor: '#334155',
-        labels: { style: { color: '#94a3b8' } },
-        crosshair: { color: '#475569', dashStyle: 'dash' }
-      },
-      yAxis: {
-        title: { text: null },
-        gridLineColor: '#1e293b',
-        labels: {
-          style: { color: '#94a3b8' },
-          formatter: function() { return chartType === 'price' ? this.value.toLocaleString() + '원' : this.value + '%'; }
-        }
-      },
+    return {
+      backgroundColor: 'transparent',
       tooltip: {
-        shared: true,
+        trigger: 'axis',
         backgroundColor: 'rgba(15, 23, 42, 0.95)',
         borderColor: '#334155',
-        borderRadius: 8,
-        style: { color: '#f8fafc', fontSize: '12px' },
-        valueSuffix: chartType === 'price' ? ' 원' : '%',
-        valueDecimals: chartType === 'price' ? 0 : 2
-      },
-      plotOptions: {
-        series: {
-          marker: { enabled: false, states: { hover: { enabled: true, radius: 5 } } },
-          lineWidth: 2.5,
-          states: { hover: { lineWidth: 3 } },
-          animation: false // 빠른 렌더링을 위해 애니메이션 최소화
+        textStyle: { color: '#f8fafc' },
+        axisPointer: { type: 'cross', label: { backgroundColor: '#334155' } },
+        // 토스증권 스타일의 커스텀 툴팁
+        formatter: function (params) {
+          if (!params || params.length === 0) return '';
+          let date = new Date(params[0].value[0]);
+          let dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+          
+          let html = `<div style="font-size:11px;font-weight:900;color:#94a3b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #334155;letter-spacing:1px;">${dateStr}</div>`;
+          
+          params.forEach(p => {
+            const val = chartType === 'price' ? p.value[1].toLocaleString() + '원' : p.value[1].toFixed(2) + '%';
+            html += `
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:6px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="width:10px;height:10px;border-radius:50%;background-color:${p.color};box-shadow:0 0 8px rgba(255,255,255,0.2);"></span>
+                  <span style="font-size:13px;font-weight:bold;color:#e2e8f0;">${p.seriesName}</span>
+                </div>
+                <span style="font-size:14px;font-family:monospace;font-weight:900;color:${p.color};">${val}</span>
+              </div>`;
+          });
+          return html;
         }
       },
-      legend: { enabled: false },
-      credits: { enabled: false },
-      series: series
+      grid: { left: '2%', right: '2%', bottom: '12%', top: '5%', containLabel: true },
+      xAxis: {
+        type: 'time',
+        axisLine: { lineStyle: { color: '#334155' } },
+        splitLine: { show: false },
+        axisLabel: { color: '#94a3b8', fontSize: 11 }
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.3)', type: 'dashed' } },
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 11,
+          formatter: (val) => chartType === 'price' ? val.toLocaleString() : val + '%'
+        }
+      },
+      // 🚀 핵심: 마우스 휠 줌(inside)과 하단 스크롤바(slider) 동시 지원
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'filter' },
+        { 
+          type: 'slider', 
+          xAxisIndex: 0, 
+          height: 24, 
+          bottom: 0, 
+          borderColor: 'transparent', 
+          backgroundColor: 'rgba(15, 23, 42, 0.5)', 
+          fillerColor: 'rgba(59, 130, 246, 0.15)', 
+          handleStyle: { color: '#3b82f6', borderColor: '#60a5fa' }, 
+          textStyle: { color: '#64748b' } 
+        }
+      ],
+      series: series,
+      animationDuration: 500 // 렌더링 시 부드러운 애니메이션 효과
     };
-
-    // 4. 기존 차트가 있으면 깔끔하게 파괴
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
-
-    // 5. DOM에 직접 차트 주입
-    chartInstanceRef.current = Highcharts.chart(chartContainerRef.current, options);
-
-    // 컴포넌트가 꺼지거나 데이터가 바뀔 때 메모리 해제
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-        chartInstanceRef.current = null;
-      }
-    };
-  }, [rawChartData, selectedPeriod, chartType, activeTheme, activeStocks]);
+  };
 
   const toggleStock = (stockName) => {
     setActiveStocks(prev => prev.includes(stockName) ? prev.filter(n => n !== stockName) : [...prev, stockName]);
@@ -307,14 +313,21 @@ export default function App() {
               </div>
             </div>
 
-            {/* 🚀 React 래퍼를 쓰지 않고, ref 도화지에 오리지널 엔진으로 직접 차트를 그립니다. */}
-            <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col p-4">
+            {/* 🚀 React-ECharts 컴포넌트: 에러 없이 완벽하게 마우스 휠 줌을 지원합니다! */}
+            <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col p-4 min-h-[350px]">
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
-              <div ref={chartContainerRef} className="w-full h-full min-h-[350px]"></div>
+              {rawChartData.length > 0 && !isLoading && (
+                <ReactECharts 
+                  option={getEChartsOption()} 
+                  style={{ height: '100%', width: '100%' }} 
+                  notMerge={true} // 데이터 바뀔 때 꼬임 100% 방지
+                  lazyUpdate={true}
+                />
+              )}
             </div>
             
             <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
