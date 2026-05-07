@@ -3,62 +3,6 @@ import ReactECharts from 'echarts-for-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// 🗂️ 확장된 테마 데이터 (추후 백엔드 AI 파이프라인에서 10x10 배열로 받아올 데이터 구조)
-const THEMES = [
-  { 
-    id: 'ai_semiconductor', 
-    name: '🔥 AI & 반도체 슈퍼사이클', 
-    description: '엔비디아 훈풍과 HBM 수요 폭발로 수혜를 받는 밸류체인 핵심 기업들',
-    stocks: [
-      { ticker: '005930.KS', name: '삼성전자', color: '#ef4444' },    
-      { ticker: '000660.KS', name: 'SK하이닉스', color: '#3b82f6' },  
-      { ticker: '042700.KS', name: '한미반도체', color: '#10b981' },
-      { ticker: '077360.KQ', name: '캠시스', color: '#f59e0b' },
-      { ticker: '036540.KQ', name: 'SFA반도체', color: '#8b5cf6' },
-      { ticker: '039030.KS', name: '이오테크닉스', color: '#ec4899' }
-    ]
-  },
-  { 
-    id: 'nuclear', 
-    name: '⚡ K-원전 르네상스', 
-    description: '체코 원전 수주 기대감과 AI 전력 난 해소를 위한 SMR(소형모듈원전) 관련주',
-    stocks: [
-      { ticker: '034020.KS', name: '두산에너빌리티', color: '#ef4444' },
-      { ticker: '015760.KS', name: '한국전력', color: '#3b82f6' },
-      { ticker: '000720.KS', name: '현대건설', color: '#10b981' },
-      { ticker: '051600.KS', name: '한전KPS', color: '#f59e0b' },
-      { ticker: '053690.KS', name: '한전기술', color: '#8b5cf6' },
-      { ticker: '032680.KQ', name: '우진엔텍', color: '#ec4899' }
-    ]
-  },
-  { 
-    id: 'bio_health', 
-    name: '🧬 K-바이오 & 비만치료제', 
-    description: '글로벌 빅파마의 비만치료제 열풍과 FDA 승인 모멘텀을 가진 바이오텍',
-    stocks: [
-      { ticker: '207940.KS', name: '삼성바이오로직스', color: '#ef4444' },
-      { ticker: '068270.KS', name: '셀트리온', color: '#3b82f6' },
-      { ticker: '000100.KS', name: '유한양행', color: '#10b981' },
-      { ticker: '028300.KQ', name: 'HLB', color: '#f59e0b' },
-      { ticker: '196170.KQ', name: '알테오젠', color: '#8b5cf6' },
-      { ticker: '282000.KQ', name: '펩트론', color: '#ec4899' }
-    ]
-  },
-  { 
-    id: 'ev_battery', 
-    name: '🔋 2차전지 & 전고체', 
-    description: '전기차 캐즘(Chasm) 극복 이후 반등을 준비하는 양극재 및 전고체 배터리 핵심주',
-    stocks: [
-      { ticker: '373220.KS', name: 'LG에너지솔루션', color: '#ef4444' },
-      { ticker: '006400.KS', name: '삼성SDI', color: '#3b82f6' },
-      { ticker: '051910.KS', name: 'LG화학', color: '#10b981' },
-      { ticker: '003670.KS', name: '포스코퓨처엠', color: '#f59e0b' },
-      { ticker: '247540.KQ', name: '에코프로비엠', color: '#8b5cf6' },
-      { ticker: '066970.KQ', name: '엘앤에프', color: '#ec4899' }
-    ]
-  }
-];
-
 const Typewriter = ({ text }) => {
   const [displayedText, setDisplayedText] = useState("");
 
@@ -78,6 +22,10 @@ const Typewriter = ({ text }) => {
 };
 
 export default function App() {
+  // 🚀 [신규] 백엔드에서 가져온 진짜 테마 데이터를 담을 공간
+  const [themes, setThemes] = useState([]);
+  const [isThemesLoading, setIsThemesLoading] = useState(true);
+
   const [activeTheme, setActiveTheme] = useState(null);
   const [activeStocks, setActiveStocks] = useState([]); 
   const [isLoading, setIsLoading] = useState(false);
@@ -88,7 +36,19 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 로고 클릭 시 홈 화면으로 돌아가기
+  // 🚀 [신규] 화면이 처음 켜질 때 백엔드에서 진짜 데이터를 가져옵니다.
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/themes`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.data) {
+          setThemes(data.data);
+        }
+      })
+      .catch(err => console.error("테마 데이터를 불러오는 중 에러 발생:", err))
+      .finally(() => setIsThemesLoading(false));
+  }, []);
+
   const goHome = () => {
     setActiveTheme(null);
     setRawChartData([]);
@@ -100,7 +60,7 @@ export default function App() {
     setIsAiLoading(true);
     setAiReport(""); 
     setActiveTheme(theme);
-    // 기본적으로 상위 5개 종목만 먼저 켜두기 (10개가 다 켜지면 지저분하므로)
+    // AI가 10개씩 주므로, 초기 화면은 상위 5개만 켜둡니다.
     setActiveStocks(theme.stocks.slice(0, 5).map(s => s.name));
     setRawChartData([]); 
 
@@ -238,7 +198,6 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#0f172a] text-slate-300 font-sans overflow-hidden selection:bg-blue-500/30">
       
-      {/* 좌측 사이드바 */}
       <aside className="w-72 bg-[#0b0f19] border-r border-slate-800 flex flex-col z-10 shadow-[4px_0_24px_rgba(0,0,0,0.5)]">
         <div className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors" onClick={goHome}>
           <h1 className="text-2xl font-black text-white tracking-tighter italic">STOCK INSIGHT</h1>
@@ -248,19 +207,25 @@ export default function App() {
           <div>
             <p className="text-[10px] font-black text-slate-500 mb-3 px-2 tracking-widest uppercase flex items-center justify-between">
               🔥 Today's Themes
-              <span className="bg-blue-600 text-white px-1.5 py-0.5 rounded text-[8px]">LIVE</span>
+              <span className="bg-blue-600 text-white px-1.5 py-0.5 rounded text-[8px] animate-pulse">LIVE</span>
             </p>
             <div className="space-y-2">
-              {THEMES.map((theme, idx) => (
-                <button 
-                  key={theme.id} 
-                  onClick={() => handleThemeClick(theme)} 
-                  className={`w-full flex items-center gap-3 text-left px-4 py-3.5 rounded-xl text-sm font-bold transition-all border ${activeTheme?.id === theme.id ? 'bg-blue-600/10 text-blue-400 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-transparent text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'}`}
-                >
-                  <span className={`text-xs font-black ${idx < 3 ? 'text-blue-500' : 'text-slate-600'}`}>{idx + 1}</span>
-                  <span className="truncate">{theme.name.split(' ')[1]}</span>
-                </button>
-              ))}
+              {isThemesLoading ? (
+                <div className="text-center text-xs text-slate-500 py-4">AI 데이터를 불러오는 중...</div>
+              ) : themes.length === 0 ? (
+                <div className="text-center text-xs text-slate-500 py-4">생성된 테마가 없습니다.</div>
+              ) : (
+                themes.map((theme, idx) => (
+                  <button 
+                    key={theme.id} 
+                    onClick={() => handleThemeClick(theme)} 
+                    className={`w-full flex items-center gap-3 text-left px-4 py-3.5 rounded-xl text-sm font-bold transition-all border ${activeTheme?.id === theme.id ? 'bg-blue-600/10 text-blue-400 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-transparent text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'}`}
+                  >
+                    <span className={`text-xs font-black ${idx < 3 ? 'text-blue-500' : 'text-slate-600'}`}>{idx + 1}</span>
+                    <span className="truncate">{theme.name}</span>
+                  </button>
+                ))
+              )}
             </div>
           </div>
           
@@ -287,62 +252,73 @@ export default function App() {
         </nav>
       </aside>
 
-      {/* 우측 메인 영역 */}
       <main className="flex-1 flex flex-col relative bg-gradient-to-br from-[#0f172a] to-[#020617] overflow-y-auto">
         {!activeTheme ? (
-          // 🚀 [신규] 10x10 구조를 위한 토스증권 스타일 대시보드 홈 화면
           <div className="p-10 max-w-6xl mx-auto w-full h-full flex flex-col animate-fade-in">
-            <div className="mb-10">
-               <h2 className="text-4xl font-black text-white tracking-tight mb-2">Market Insight</h2>
-               <p className="text-slate-400 font-medium">AI가 실시간 뉴스 흐름을 분석해 선별한 상위 10개 테마입니다.</p>
+            <div className="mb-10 flex justify-between items-end">
+               <div>
+                 <h2 className="text-4xl font-black text-white tracking-tight mb-2">Market Insight</h2>
+                 <p className="text-slate-400 font-medium">AI가 실시간 뉴스 흐름을 분석해 선별한 오늘의 주도 테마입니다.</p>
+               </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pb-10">
-              {THEMES.map((theme, index) => (
-                <div 
-                  key={theme.id} 
-                  onClick={() => handleThemeClick(theme)}
-                  className="bg-[#1e293b]/40 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl hover:bg-[#1e293b]/80 hover:border-blue-500/50 transition-all cursor-pointer group shadow-lg hover:shadow-[0_10px_40px_rgba(59,130,246,0.15)] flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <span className="bg-slate-800 text-slate-300 font-black text-xs px-3 py-1 rounded-full shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                        TOP {index + 1}
-                      </span>
-                      <span className="text-slate-500 group-hover:text-blue-400 transition-colors">➔</span>
-                    </div>
-                    <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{theme.name}</h3>
-                    <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed mb-6">{theme.description}</p>
-                  </div>
-                  
-                  <div>
-                    <p className="text-[10px] font-black tracking-widest text-slate-500 mb-3 uppercase">💡 주요 대장주</p>
-                    <div className="flex flex-wrap gap-2">
-                      {theme.stocks.slice(0, 4).map(stock => (
-                        <span key={stock.ticker} className="bg-[#0f172a] border border-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg shadow-sm font-medium">
-                          {stock.name}
-                        </span>
-                      ))}
-                      {theme.stocks.length > 4 && (
-                        <span className="bg-slate-800/50 text-slate-400 text-xs px-3 py-1.5 rounded-lg font-medium">
-                          +{theme.stocks.length - 4}
-                        </span>
-                      )}
+              {isThemesLoading ? (
+                // 로딩 중일 때 스켈레톤 UI (뼈대)
+                [1, 2, 3, 4].map(n => (
+                  <div key={n} className="bg-slate-800/20 border border-slate-700/30 p-6 rounded-3xl min-h-[220px] animate-pulse flex flex-col justify-between">
+                    <div>
+                      <div className="w-16 h-6 bg-slate-700/50 rounded-full mb-4"></div>
+                      <div className="w-3/4 h-6 bg-slate-700/50 rounded mb-2"></div>
+                      <div className="w-full h-4 bg-slate-700/30 rounded mb-1"></div>
+                      <div className="w-2/3 h-4 bg-slate-700/30 rounded"></div>
                     </div>
                   </div>
+                ))
+              ) : themes.length === 0 ? (
+                <div className="col-span-2 text-center text-slate-500 py-20">
+                  <span className="text-4xl mb-4 block">🤖</span>
+                  <p>아직 AI가 테마를 생성하지 않았습니다.<br/>관리자 메뉴에서 파이프라인을 실행해주세요.</p>
                 </div>
-              ))}
-              
-              {/* 임시 더미 카드 (AI 연동 후 삭제) */}
-              <div className="bg-slate-900/30 border border-slate-800 border-dashed p-6 rounded-3xl flex flex-col items-center justify-center text-slate-600 min-h-[220px]">
-                 <span className="text-3xl mb-2 animate-bounce">🤖</span>
-                 <p className="text-sm font-bold">AI가 추가 테마를 분석 중입니다...</p>
-                 <p className="text-xs mt-1">곧 10개의 테마가 모두 채워질 예정입니다.</p>
-              </div>
+              ) : (
+                themes.map((theme, index) => (
+                  <div 
+                    key={theme.id} 
+                    onClick={() => handleThemeClick(theme)}
+                    className="bg-[#1e293b]/40 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl hover:bg-[#1e293b]/80 hover:border-blue-500/50 transition-all cursor-pointer group shadow-lg hover:shadow-[0_10px_40px_rgba(59,130,246,0.15)] flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <span className="bg-slate-800 text-slate-300 font-black text-xs px-3 py-1 rounded-full shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                          TOP {index + 1}
+                        </span>
+                        <span className="text-slate-500 group-hover:text-blue-400 transition-colors">➔</span>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{theme.name}</h3>
+                      <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed mb-6">{theme.description}</p>
+                    </div>
+                    
+                    <div>
+                      <p className="text-[10px] font-black tracking-widest text-slate-500 mb-3 uppercase">💡 주요 대장주</p>
+                      <div className="flex flex-wrap gap-2">
+                        {theme.stocks?.slice(0, 4).map(stock => (
+                          <span key={stock.ticker} className="bg-[#0f172a] border border-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg shadow-sm font-medium">
+                            {stock.name}
+                          </span>
+                        ))}
+                        {theme.stocks?.length > 4 && (
+                          <span className="bg-slate-800/50 text-slate-400 text-xs px-3 py-1.5 rounded-lg font-medium">
+                            +{theme.stocks.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         ) : (
-          // 🚀 기존 ECharts 상세 화면 (상단 타이틀에 뒤로가기 버튼 추가)
           <div className="p-8 max-w-6xl mx-auto w-full h-full flex flex-col">
             <div className="flex justify-between items-end mb-6">
               <div>
@@ -361,10 +337,9 @@ export default function App() {
               </div>
             </div>
             
-            {/* 종목 컨트롤 패널 */}
             <div className="bg-[#1e293b]/80 backdrop-blur-md border border-slate-700 p-5 rounded-2xl mb-6 flex justify-between items-center shadow-lg">
               <div className="flex-1">
-                <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">비교 대상 종목 (최대 10개)</p>
+                <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">비교 대상 종목</p>
                 <div className="flex flex-wrap gap-3">
                   {activeTheme.stocks.map(stock => {
                     const isActive = activeStocks.includes(stock.name);
