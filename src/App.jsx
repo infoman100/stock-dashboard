@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 const Typewriter = ({ text }) => {
   const [displayedText, setDisplayedText] = useState("");
-
   useEffect(() => {
     setDisplayedText("");
     if (!text) return;
@@ -17,15 +16,12 @@ const Typewriter = ({ text }) => {
     }, 30);
     return () => clearInterval(timer);
   }, [text]);
-
   return <p className="text-sm text-blue-300 font-medium leading-relaxed whitespace-pre-line">{displayedText}</p>;
 };
 
 export default function App() {
-  // 🚀 [신규] 백엔드에서 가져온 진짜 테마 데이터를 담을 공간
   const [themes, setThemes] = useState([]);
   const [isThemesLoading, setIsThemesLoading] = useState(true);
-
   const [activeTheme, setActiveTheme] = useState(null);
   const [activeStocks, setActiveStocks] = useState([]); 
   const [isLoading, setIsLoading] = useState(false);
@@ -36,16 +32,20 @@ export default function App() {
   const [aiReport, setAiReport] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 🚀 [신규] 화면이 처음 켜질 때 백엔드에서 진짜 데이터를 가져옵니다.
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/themes`)
       .then(res => res.json())
       .then(data => {
         if (data && data.data) {
-          setThemes(data.data);
+          // 🚀 [안전장치] DB에서 가져온 stocks가 문자열이면 배열로 변환
+          const cleanThemes = data.data.map(t => ({
+            ...t,
+            stocks: typeof t.stocks === 'string' ? JSON.parse(t.stocks) : t.stocks
+          }));
+          setThemes(cleanThemes);
         }
       })
-      .catch(err => console.error("테마 데이터를 불러오는 중 에러 발생:", err))
+      .catch(err => console.error(err))
       .finally(() => setIsThemesLoading(false));
   }, []);
 
@@ -60,13 +60,15 @@ export default function App() {
     setIsAiLoading(true);
     setAiReport(""); 
     setActiveTheme(theme);
-    // AI가 10개씩 주므로, 초기 화면은 상위 5개만 켜둡니다.
-    setActiveStocks(theme.stocks.slice(0, 5).map(s => s.name));
+    
+    // 안전한 배열 접근
+    const safeStocks = typeof theme.stocks === 'string' ? JSON.parse(theme.stocks) : theme.stocks;
+    setActiveStocks(safeStocks.slice(0, 5).map(s => s.name));
     setRawChartData([]); 
 
     try {
       let mergedData = {};
-      for (const stock of theme.stocks) {
+      for (const stock of safeStocks) {
         try {
           const res = await fetch(`${API_BASE_URL}/api/stock/${stock.ticker}`).then(r => r.json());
           if (res && res.data) {
@@ -77,16 +79,15 @@ export default function App() {
             });
           }
         } catch (fetchErr) {
-          console.warn(`${stock.ticker} 데이터 로딩 실패.`);
+          console.warn(`${stock.ticker} 실패`);
         }
       }
 
       const sortedData = Object.values(mergedData).sort((a, b) => new Date(a.time) - new Date(b.time));
-      
       let lastKnownPrices = {}; 
       const filledData = sortedData.map(row => {
         const newRow = { ...row };
-        theme.stocks.forEach(stock => {
+        safeStocks.forEach(stock => {
           if (newRow[stock.name] !== undefined) lastKnownPrices[stock.name] = newRow[stock.name];
           else if (lastKnownPrices[stock.name] !== undefined) newRow[stock.name] = lastKnownPrices[stock.name];
         });
@@ -97,12 +98,12 @@ export default function App() {
 
       fetch(`${API_BASE_URL}/api/theme-report/${theme.id}`)
         .then(res => res.json())
-        .then(data => setAiReport(data?.report || "분석 데이터를 불러올 수 없습니다."))
-        .catch(() => setAiReport("서버 연결 지연."))
+        .then(data => setAiReport(data?.report || ""))
+        .catch(() => setAiReport("에러."))
         .finally(() => setIsAiLoading(false));
 
     } catch (error) {
-      console.error("로딩 에러:", error);
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
@@ -111,6 +112,7 @@ export default function App() {
   const getEChartsOption = () => {
     if (rawChartData.length === 0 || !activeTheme) return {};
 
+    const safeStocks = typeof activeTheme.stocks === 'string' ? JSON.parse(activeTheme.stocks) : activeTheme.stocks;
     const lastDataPoint = rawChartData[rawChartData.length - 1];
     let startDate = new Date(lastDataPoint.time);
     
@@ -123,7 +125,7 @@ export default function App() {
     const filteredData = rawChartData.filter(d => new Date(d.time) >= startDate);
     if (filteredData.length === 0) return {};
 
-    const series = activeTheme.stocks
+    const series = safeStocks
       .filter(s => activeStocks.includes(s.name))
       .map(stock => {
         let basePrice = null;
@@ -147,40 +149,11 @@ export default function App() {
 
     return {
       backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-        borderColor: '#334155',
-        textStyle: { color: '#f8fafc' },
-        axisPointer: { type: 'cross', label: { backgroundColor: '#334155' } },
-        formatter: function (params) {
-          if (!params || params.length === 0) return '';
-          let date = new Date(params[0].value[0]);
-          let dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-          
-          let html = `<div style="font-size:11px;font-weight:900;color:#94a3b8;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #334155;letter-spacing:1px;">${dateStr}</div>`;
-          
-          params.forEach(p => {
-            const val = chartType === 'price' ? p.value[1].toLocaleString() + '원' : p.value[1].toFixed(2) + '%';
-            html += `
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:6px;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <span style="width:10px;height:10px;border-radius:50%;background-color:${p.color};box-shadow:0 0 8px rgba(255,255,255,0.2);"></span>
-                  <span style="font-size:13px;font-weight:bold;color:#e2e8f0;">${p.seriesName}</span>
-                </div>
-                <span style="font-size:14px;font-family:monospace;font-weight:900;color:${p.color};">${val}</span>
-              </div>`;
-          });
-          return html;
-        }
-      },
+      tooltip: { trigger: 'axis', backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: '#334155', textStyle: { color: '#f8fafc' }, axisPointer: { type: 'cross' } },
       grid: { left: '2%', right: '2%', bottom: '12%', top: '5%', containLabel: true },
       xAxis: { type: 'time', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { show: false }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
-      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.3)', type: 'dashed' } }, axisLabel: { color: '#94a3b8', fontSize: 11, formatter: (val) => chartType === 'price' ? val.toLocaleString() : val + '%' } },
-      dataZoom: [
-        { type: 'inside', xAxisIndex: 0, filterMode: 'filter' },
-        { type: 'slider', xAxisIndex: 0, height: 24, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(15, 23, 42, 0.5)', fillerColor: 'rgba(59, 130, 246, 0.15)', handleStyle: { color: '#3b82f6', borderColor: '#60a5fa' }, textStyle: { color: '#64748b' } }
-      ],
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.3)', type: 'dashed' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+      dataZoom: [ { type: 'inside' }, { type: 'slider', height: 24, bottom: 0, borderColor: 'transparent', backgroundColor: 'rgba(15, 23, 42, 0.5)', fillerColor: 'rgba(59, 130, 246, 0.15)', handleStyle: { color: '#3b82f6' } } ],
       series: series,
       animationDuration: 500
     };
@@ -197,7 +170,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#0f172a] text-slate-300 font-sans overflow-hidden selection:bg-blue-500/30">
-      
       <aside className="w-72 bg-[#0b0f19] border-r border-slate-800 flex flex-col z-10 shadow-[4px_0_24px_rgba(0,0,0,0.5)]">
         <div className="p-6 border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors" onClick={goHome}>
           <h1 className="text-2xl font-black text-white tracking-tighter italic">STOCK INSIGHT</h1>
@@ -221,8 +193,8 @@ export default function App() {
                     onClick={() => handleThemeClick(theme)} 
                     className={`w-full flex items-center gap-3 text-left px-4 py-3.5 rounded-xl text-sm font-bold transition-all border ${activeTheme?.id === theme.id ? 'bg-blue-600/10 text-blue-400 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-transparent text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'}`}
                   >
-                    <span className={`text-xs font-black ${idx < 3 ? 'text-blue-500' : 'text-slate-600'}`}>{idx + 1}</span>
-                    <span className="truncate">{theme.name}</span>
+                    <span className={`text-xs font-black ${idx < 3 ? 'text-blue-500' : 'text-slate-600'}`}>{theme.rank}</span>
+                    <span className="truncate">{theme.name.split(" ")[1] || theme.name}</span>
                   </button>
                 ))
               )}
@@ -264,15 +236,9 @@ export default function App() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pb-10">
               {isThemesLoading ? (
-                // 로딩 중일 때 스켈레톤 UI (뼈대)
                 [1, 2, 3, 4].map(n => (
                   <div key={n} className="bg-slate-800/20 border border-slate-700/30 p-6 rounded-3xl min-h-[220px] animate-pulse flex flex-col justify-between">
-                    <div>
-                      <div className="w-16 h-6 bg-slate-700/50 rounded-full mb-4"></div>
-                      <div className="w-3/4 h-6 bg-slate-700/50 rounded mb-2"></div>
-                      <div className="w-full h-4 bg-slate-700/30 rounded mb-1"></div>
-                      <div className="w-2/3 h-4 bg-slate-700/30 rounded"></div>
-                    </div>
+                    <div><div className="w-16 h-6 bg-slate-700/50 rounded-full mb-4"></div><div className="w-3/4 h-6 bg-slate-700/50 rounded mb-2"></div></div>
                   </div>
                 ))
               ) : themes.length === 0 ? (
@@ -281,40 +247,43 @@ export default function App() {
                   <p>아직 AI가 테마를 생성하지 않았습니다.<br/>관리자 메뉴에서 파이프라인을 실행해주세요.</p>
                 </div>
               ) : (
-                themes.map((theme, index) => (
-                  <div 
-                    key={theme.id} 
-                    onClick={() => handleThemeClick(theme)}
-                    className="bg-[#1e293b]/40 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl hover:bg-[#1e293b]/80 hover:border-blue-500/50 transition-all cursor-pointer group shadow-lg hover:shadow-[0_10px_40px_rgba(59,130,246,0.15)] flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex justify-between items-start mb-4">
-                        <span className="bg-slate-800 text-slate-300 font-black text-xs px-3 py-1 rounded-full shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                          TOP {index + 1}
-                        </span>
-                        <span className="text-slate-500 group-hover:text-blue-400 transition-colors">➔</span>
-                      </div>
-                      <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{theme.name}</h3>
-                      <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed mb-6">{theme.description}</p>
-                    </div>
-                    
-                    <div>
-                      <p className="text-[10px] font-black tracking-widest text-slate-500 mb-3 uppercase">💡 주요 대장주</p>
-                      <div className="flex flex-wrap gap-2">
-                        {theme.stocks?.slice(0, 4).map(stock => (
-                          <span key={stock.ticker} className="bg-[#0f172a] border border-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg shadow-sm font-medium">
-                            {stock.name}
+                themes.map((theme) => {
+                  const safeStocks = typeof theme.stocks === 'string' ? JSON.parse(theme.stocks) : theme.stocks;
+                  return (
+                    <div 
+                      key={theme.id} 
+                      onClick={() => handleThemeClick(theme)}
+                      className="bg-[#1e293b]/40 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl hover:bg-[#1e293b]/80 hover:border-blue-500/50 transition-all cursor-pointer group shadow-lg flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-4">
+                          <span className="bg-slate-800 text-slate-300 font-black text-xs px-3 py-1 rounded-full shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            TOP {theme.rank}
                           </span>
-                        ))}
-                        {theme.stocks?.length > 4 && (
-                          <span className="bg-slate-800/50 text-slate-400 text-xs px-3 py-1.5 rounded-lg font-medium">
-                            +{theme.stocks.length - 4}
-                          </span>
-                        )}
+                        </div>
+                        <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{theme.name}</h3>
+                        <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed mb-6">{theme.description}</p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-[10px] font-black tracking-widest text-slate-500 mb-3 uppercase">💡 주요 대장주</p>
+                        <div className="flex flex-wrap gap-2">
+                          {safeStocks?.slice(0, 4).map(stock => (
+                            <span key={stock.ticker} className="bg-[#0f172a] border border-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg shadow-sm font-medium flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: stock.color}}></span>
+                              {stock.name}
+                            </span>
+                          ))}
+                          {safeStocks?.length > 4 && (
+                            <span className="bg-slate-800/50 text-slate-400 text-xs px-3 py-1.5 rounded-lg font-medium">
+                              +{safeStocks.length - 4}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -322,81 +291,56 @@ export default function App() {
           <div className="p-8 max-w-6xl mx-auto w-full h-full flex flex-col">
             <div className="flex justify-between items-end mb-6">
               <div>
-                <button onClick={goHome} className="text-slate-500 hover:text-blue-400 text-sm font-bold mb-2 flex items-center gap-2 transition-colors">
-                  ← 홈으로 돌아가기
-                </button>
+                <button onClick={goHome} className="text-slate-500 hover:text-blue-400 text-sm font-bold mb-2 flex items-center gap-2 transition-colors">← 홈으로 돌아가기</button>
                 <h2 className="text-3xl font-black text-white tracking-tight">{activeTheme.name}</h2>
               </div>
-              <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700 shadow-inner hidden md:flex">
+              <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700 hidden md:flex">
                 {['1M', '3M', '1Y', '3Y', '5Y'].map(period => (
-                  <label key={period} className={`cursor-pointer px-5 py-2 text-xs font-black rounded-lg transition-all ${selectedPeriod === period ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
+                  <label key={period} className={`cursor-pointer px-5 py-2 text-xs font-black rounded-lg transition-all ${selectedPeriod === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}>
                     <input type="radio" name="period" value={period} checked={selectedPeriod === period} onChange={(e) => setSelectedPeriod(e.target.value)} className="hidden"/>
-                    {period === '1M' ? '1개월' : period === '3M' ? '3개월' : period === '1Y' ? '1년' : period === '3Y' ? '3년' : '5년'}
+                    {period}
                   </label>
                 ))}
               </div>
             </div>
             
-            <div className="bg-[#1e293b]/80 backdrop-blur-md border border-slate-700 p-5 rounded-2xl mb-6 flex justify-between items-center shadow-lg">
+            <div className="bg-[#1e293b]/80 border border-slate-700 p-5 rounded-2xl mb-6 flex justify-between items-center shadow-lg">
               <div className="flex-1">
-                <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">비교 대상 종목</p>
                 <div className="flex flex-wrap gap-3">
-                  {activeTheme.stocks.map(stock => {
+                  {(typeof activeTheme.stocks === 'string' ? JSON.parse(activeTheme.stocks) : activeTheme.stocks).map(stock => {
                     const isActive = activeStocks.includes(stock.name);
                     const isStarred = watchList.find(w => w.ticker === stock.ticker);
                     return (
-                      <div key={stock.ticker} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${isActive ? 'bg-slate-800 border-slate-600 shadow-md' : 'border-transparent opacity-40 hover:opacity-100'}`}>
+                      <div key={stock.ticker} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${isActive ? 'bg-slate-800 border-slate-600' : 'border-transparent opacity-40 hover:opacity-100'}`}>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={isActive} onChange={() => toggleStock(stock.name)} className="hidden" />
                           <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stock.color }}></div>
                           <span className="text-sm font-bold text-slate-200">{stock.name}</span>
                         </label>
-                        <button onClick={(e) => toggleWatchList(stock, e)} className={`ml-1 ${isStarred ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]' : 'text-slate-600 hover:text-yellow-400'}`}>{isStarred ? '★' : '☆'}</button>
+                        <button onClick={(e) => toggleWatchList(stock, e)} className={`ml-1 ${isStarred ? 'text-yellow-400' : 'text-slate-600'}`}>{isStarred ? '★' : '☆'}</button>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              <div className="border-l border-slate-700 pl-6 ml-4 hidden lg:block">
-                 <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">조회 기준</p>
-                 <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 shadow-inner">
-                   <button onClick={() => setChartType('price')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${chartType === 'price' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>주가(원)</button>
-                   <button onClick={() => setChartType('return')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${chartType === 'return' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>수익률(%)</button>
-                 </div>
-              </div>
             </div>
 
-            <div className="flex-1 bg-[#1e293b]/60 backdrop-blur-sm border border-slate-700 rounded-3xl relative shadow-[0_8px_30px_rgb(0,0,0,0.5)] overflow-hidden flex flex-col p-4 min-h-[350px]">
+            <div className="flex-1 bg-[#1e293b]/60 border border-slate-700 rounded-3xl relative overflow-hidden flex flex-col p-4 min-h-[350px]">
               {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-md z-20">
+                <div className="absolute inset-0 flex items-center justify-center bg-[#0f172a]/60 z-20">
                   <div className="w-10 h-10 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
               {rawChartData.length > 0 && !isLoading && (
-                <ReactECharts 
-                  option={getEChartsOption()} 
-                  style={{ height: '100%', width: '100%' }} 
-                  notMerge={true} 
-                  lazyUpdate={true}
-                />
+                <ReactECharts option={getEChartsOption()} style={{ height: '100%', width: '100%' }} notMerge={true} lazyUpdate={true} />
               )}
             </div>
             
-            <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px] shadow-lg">
-               <span className="text-3xl animate-pulse">🤖</span>
+            <div className="mt-5 bg-gradient-to-r from-blue-900/30 to-[#0f172a] p-5 rounded-2xl border border-blue-900/50 flex gap-4 min-h-[100px]">
+               <span className="text-3xl">🤖</span>
                <div className="flex-1">
-                 <h4 className="text-xs font-black tracking-widest text-blue-400 mb-2 uppercase flex items-center gap-2">
-                   AI Theme Insight <span className="bg-blue-600/30 px-2 py-0.5 rounded text-[10px] text-blue-300">PRO</span>
-                 </h4>
-                 {isAiLoading ? (
-                   <div className="flex space-x-1 mt-3">
-                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-75"></div>
-                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce delay-150"></div>
-                   </div>
-                 ) : (
-                   <Typewriter text={aiReport} />
-                 )}
+                 <h4 className="text-xs font-black tracking-widest text-blue-400 mb-2 uppercase">AI Theme Insight</h4>
+                 {isAiLoading ? <div className="animate-pulse w-1/2 h-4 bg-blue-900/50 rounded"></div> : <Typewriter text={aiReport} />}
                </div>
             </div>
           </div>
